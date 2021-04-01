@@ -22,10 +22,16 @@ Add-ADGroupMember -Identity "Managers" -Members "CN=Mister Manager,CN=Users,DC=l
 '@
 
 $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
-$trigger = New-ScheduledTaskTrigger -AtStartup -Once 
+$trigger = New-ScheduledTaskTrigger -AtStartup 
 $principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel Highest
 # "ANS4WIN\Administrator"
 Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -Principal $principal
+
+$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration ([Timespan]::MaxValue)
+$principal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances Parallel
+Register-ScheduledTask -TaskName "mynewpopad" -TaskPath "\*" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
 
 
 
