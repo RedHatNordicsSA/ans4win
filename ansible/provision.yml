@@ -1,0 +1,239 @@
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+    - vars/vars.yml
+  tasks:
+  - name: create temporary build directory
+    tempfile:
+      state: directory
+      prefix: "ans4win_"
+      path: /tmp/
+    register: mytempdir
+
+  - name: Download Tower setup script
+    get_url:
+      url: "{{ tower_prep }}"
+      dest: "{{ mytempdir['path'] }}/tower-prep.sh"
+      validate_certs: no
+      force: yes
+    register: toweruserdata
+
+  - name: Download Active Directory setup script
+    get_url:
+      url: "{{ ad_prep }}"
+      dest: "{{ mytempdir['path'] }}/ad-prep.ps1"
+      validate_certs: no
+      force: yes
+    register: aduserdata
+
+  - name: Create empty file to store Tower public IPs
+    file:
+      path: "{{ mytempdir['path'] }}/tower_instances.out"
+      state: touch
+
+  - name: Create empty file to store Active Directory host public IPs
+    file:
+      path: "{{ mytempdir['path'] }}/ad_instances.out"
+      state: touch
+
+  - name: Create the ans4win keypair
+    ec2_key:
+      name: "ans4win"
+      region: "{{ ec2_region }}"
+    register: ans4win_ec2_key
+
+  - name: Shave the private key in tmp folder
+    copy:
+      content: "{{ ec2_key.key.private_key }}"
+      dest: "{{ mytempdir['path'] }}/ans4win.pem"
+      mode: 0600
+    when: ans4win_ec2_key.changed
+
+  - name: create the VPC for the ans4win
+    ec2_vpc_net:
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      name: "{{ ec2_vpc }}"
+      state: "present"
+      cidr_block: "{{ ec2_vpc_cidr }}"
+      region: "{{ ec2_region }}"
+      tags:
+        identity: "{{ ec2_vpc }}"
+    register: ans4win_vpc
+  - name: Set VPC ID in variable
+    set_fact:
+      ans4win_vpc_id: "{{ ans4win_vpc.vpc.id }}"
+
+  - name: create the subnet for the ans4win
+    ec2_vpc_subnet:
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      state: "present"
+      vpc_id: "{{ ans4win_vpc_id }}"
+      cidr: "{{ ec2_vpc_cidr }}"
+      az: "{{ ec2_region }}a"
+      region: "{{ ec2_region }}"
+      resource_tags:
+        identity: "Public Subnet"
+    register: ans4win_subnet
+
+  - name: Set subnet ID in variable
+    set_fact:
+        ans4win_subnet_id: "{{ ans4win_subnet.subnet.id }}"
+
+  - name: create internet gateway for ans4win
+    ec2_vpc_igw:
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      vpc_id: "{{ ans4win_vpc_id }}"
+      region: "{{ ec2_region }}"
+      state: "present"
+    register: ans4win_igw
+  - name: Set Internet Gateway ID in variable
+    set_fact:
+        ans4win_igw_id: "{{ ans4win_igw.gateway_id }}"
+
+  - name: Set up public subnet route table
+    ec2_vpc_route_table:
+        aws_access_key: "{{ec2_access_key}}"
+        aws_secret_key: "{{ec2_secret_key}}"  
+        vpc_id: "{{ ans4win_vpc_id }}"
+        region: "{{ ec2_region }}"
+        subnets:
+          - "{{ ans4win_subnet_id }}"
+        routes:
+          - dest:         "0.0.0.0/0"
+            gateway_id:   "{{ ans4win_igw_id }}"
+
+  - name: Ensure a security group is in place
+    ec2_group:
+      name: "{{ ec2_security_group }}"
+      description: Security Group for ans4win workshop
+      vpc_id: "{{ ans4win_vpc_id }}"
+      region: "{{ ec2_region }}"
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      rules:
+        - proto: tcp
+          from_port: 22
+          to_port: 22
+          cidr_ip: "{{ ec2_vpc_cidr }}"
+          rule_desc: Allow ssh within subnet
+        - proto: tcp
+          from_port: 3389
+          to_port: 3389
+          cidr_ip: 0.0.0.0/0
+          rule_desc: Allow all win remote desktop
+        - proto: tcp
+          from_port: 5985
+          to_port: 5985
+          cidr_ip: "{{ ec2_vpc_cidr }}"
+          rule_desc: Allow winrm within subnet
+        - proto: tcp
+          from_port: 5986
+          to_port: 5986
+          cidr_ip: "{{ ec2_vpc_cidr }}"
+          rule_desc: Allow winrm within subnet
+        - proto: tcp
+          from_port: 80
+          to_port: 80
+          cidr_ip: 0.0.0.0/0
+          rule_desc: Allow all http
+        - proto: tcp
+          from_port: 443
+          to_port: 443
+          cidr_ip: 0.0.0.0/0
+          rule_desc: Allow all https
+        - proto: tcp
+          from_port: 9090
+          to_port: 9090
+          cidr_ip: 0.0.0.0/0
+          rule_desc: Allow all cockpit
+      rules_egress:
+        - proto: all
+          cidr_ip: 0.0.0.0/0
+
+  - name: Provision Active Directory host
+    ec2:
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      key_name: "{{ec2_key}}"
+      region: "{{ ec2_region }}"
+      group: "{{ ec2_security_group }}"
+      assign_public_ip: yes
+      vpc_subnet_id: "{{ ans4win_subnet_id }}"
+      instance_type: t2.medium
+      image: "{{ win_ad_ami_id }}"
+      user_data: "{{ lookup('file', aduserdata['dest']) }}"
+      wait: true
+      exact_count: "1"
+      count_tag:
+        identity: ad
+      instance_tags:
+        identity: ad
+    register: ad
+    
+  - name: Add Active Directory host instance public IPs to host group
+    add_host: hostname={{ item.private_ip }} groups=ad
+    with_items: "{{ ad.tagged_instances }}"
+  
+  - name: Replace RHN_ACCOUNT variable placeholder in Tower prep files
+    lineinfile:
+      path: "{{ mytempdir['path'] }}/tower-prep.sh"
+      regexp: '^RHN_ACCOUNT=THEACCOUNT'
+      line: "RHN_ACCOUNT={{ rhn_account }}"
+      create: yes
+
+  - name: Replace RHN_PASSWORD variable placeholder in Tower prep files
+    lineinfile:
+      path: "{{ mytempdir['path'] }}/tower-prep.sh"
+      regexp: '^RHN_PASSWORD=THEPASSWORD'
+      line: "RHN_PASSWORD=\"{{ rhn_password }}\""
+      create: yes
+
+  - name: Provision Tower servers
+    ec2:
+      aws_access_key: "{{ec2_access_key}}"
+      aws_secret_key: "{{ec2_secret_key}}"
+      key_name: "{{ec2_key}}"
+      region: "{{ ec2_region }}"
+      group: "{{ ec2_security_group }}"
+      assign_public_ip: yes
+      vpc_subnet_id: "{{ ans4win_subnet_id }}"
+      instance_type: t2.medium
+      user_data: "{{ lookup('file', toweruserdata['dest']) }}"
+      image: "{{ rhel_ami_id }}"
+      wait: true
+      exact_count: "1"
+      count_tag:
+        identity: tower
+      instance_tags:
+        identity: tower
+    register: tower
+
+  - name: Print IP addresses of Active Directory to ad_instances.out
+    lineinfile:
+      path: "{{ mytempdir['path'] }}/ad_instances.out"
+      line: "{{ item.private_ip }}"
+      create: yes
+    with_items: "{{ ad.tagged_instances }}"
+
+  - name: Add Tower instance public IPs to host group
+    add_host: hostname={{ item.public_ip }} groups=tower
+    with_items: "{{ tower.tagged_instances }}"
+
+  - name: Print IP addresses of Tower systems
+    debug:
+      msg: "{{ groups['tower'] }}"
+
+  - name: Print Private IP addresses of RHEL hosts to tower_instances.out
+    lineinfile:
+      path: "{{ mytempdir['path'] }}/tower_instances.out"
+      line: '{{ item }}'
+    with_items: "{{ groups['tower'] }}"
+
+
+  - name: Print IP addresses of Tower hosts
+    debug:
+      msg: "{{ groups['tower'] }}"
