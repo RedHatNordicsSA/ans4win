@@ -21,18 +21,11 @@ Add-ADGroupMember -Identity "Minions" -Members "CN=Hakan Hagenrud,CN=Users,DC=li
 Add-ADGroupMember -Identity "Managers" -Members "CN=Mister Manager,CN=Users,DC=linux4win,DC=local"
 '@
 
+$Secure_String_Pwd = ConvertTo-SecureString "Password1" -AsPlainText -Force
+$username = 'ANS4WIN\Administrator'
 $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
 $trigger = New-ScheduledTaskTrigger -AtStartup 
-$principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel Highest
-# "ANS4WIN\Administrator"
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -Principal $principal
-
-$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration ([Timespan]::MaxValue)
-$principal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances Parallel
-Register-ScheduledTask -TaskName "mynewpopad" -TaskPath "\*" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
-
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -RunLevel Highest -User $username -Password $password
 
 
 echo $daScript > $myScript
