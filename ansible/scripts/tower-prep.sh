@@ -28,6 +28,8 @@ pg_password='Password1'
 EOF
 ./setup -i inventory 
 
+ldapsearch -H ldap://10.211.55.52 -x -w "Password1" -D "Administrator@ans4win.local" -b "dc=ans4win,dc=local" "(sAMAccountName=administrator)"
+
 
 sed -i  -e 's/PasswordAuthentication no/PasswordAuthentication yes/1' /etc/ssh/sshd_config
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.redhat

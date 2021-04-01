@@ -21,6 +21,13 @@ Add-ADGroupMember -Identity "Minions" -Members "CN=Hakan Hagenrud,CN=Users,DC=li
 Add-ADGroupMember -Identity "Managers" -Members "CN=Mister Manager,CN=Users,DC=linux4win,DC=local"
 '@
 
+$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
+$trigger = New-ScheduledTaskTrigger -AtStartup -Once 
+$user = "ANS4WIN\Administrator"
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -User $user
+
+
+
 echo $daScript > $myScript
 New-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name "addusers" -Value "%systemroot%\System32\WindowsPowerShell\v1.0\powershell.exe -executionpolicy bypass -file $myScript" -PropertyType ExpandString
 Start-Sleep -s 5
