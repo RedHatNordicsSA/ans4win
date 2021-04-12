@@ -25,7 +25,23 @@ $Secure_String_Pwd = ConvertTo-SecureString "Password1" -AsPlainText -Force
 $username = 'ANS4WIN\Administrator'
 $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1 -PropertyType ExpandString"
 $trigger = New-ScheduledTaskTrigger -AtStartup 
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -RunLevel Highest -User $username -Password $password
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "populateAD" -RunLevel Highest -User $username -Password $Secure_String_Pwd
+
+$username = 'ANS4WIN\Administrator'
+$Secure_String_Pwd = ConvertTo-SecureString "Password1" -AsPlainText -Force
+$action = New-ScheduledTaskAction -Execute 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -Argument "-executionpolicy bypass -file c:/myfile.ps1"
+$trigger =  New-ScheduledTaskTrigger -AtStartup
+$params = @{
+"TaskName"    = "Do the stuff"
+"Action"      = $action
+"Trigger"     = $trigger
+"User"        = $Username
+"Password"    = $Secure_String_Pwd
+"RunLevel"    = "Highest"
+"Description" =  "Run the thing with the stuffs"
+}
+Register-ScheduledTask @Params
+
 
 
 echo $daScript > $myScript
